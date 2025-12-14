@@ -1,0 +1,937 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soccer Tactics Board</title>
+    <style>
+        /* --- CSS STYLES --- */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            background-color: #f4f4f9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #toolbar {
+            background-color: #333;
+            color: white;
+            padding: 12px; /* Increased padding */
+            width: 100%;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px; /* Increased gap */
+            justify-content: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        #toolbar button, #toolbar select, #toolbar label {
+            /* Ensure minimum tap size for touch friendliness */
+            min-height: 44px; 
+            padding: 10px 15px; 
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px; /* Increased font size */
+            transition: background-color 0.2s;
+            white-space: nowrap;
+        }
+
+        #toolbar button {
+            background-color: #555;
+            color: white;
+        }
+
+        #toolbar button:hover {
+            background-color: #777;
+        }
+        
+        #toolbar button.active {
+            background-color: #1e88e5; /* Distinct color for active state */
+        }
+
+        #toolbar select {
+            background-color: #fff;
+            color: #333;
+        }
+        
+        /* Checkbox styling */
+        #toolbar input[type="checkbox"] {
+            margin-right: 4px;
+            width: 16px;
+            height: 16px;
+        }
+
+        #toolbar label {
+            background-color: #333;
+            color: white;
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+        }
+
+        /* Container for the SVG to allow for responsiveness */
+        #board-container {
+            width: 100%;
+            max-width: 1000px;
+            margin-top: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            background-color: #fff;
+        }
+
+        #soccer-field {
+            display: block;
+            background-color: #38761d; /* Green pitch */
+            width: 100%;
+            height: auto;
+            max-height: 650px;
+            touch-action: none; /* Prevent default touch behavior on the field */
+        }
+        
+        /* Styles for the draggable player pieces */
+        .player-piece {
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+            transition: r 0.1s;
+        }
+
+        .player-piece:active {
+            cursor: grabbing;
+            transform: scale(1.1); /* Added visual feedback on tap/drag */
+            transition: transform 0.1s ease-out;
+        }
+        
+        /* Team colors */
+        .team-A { fill: #1e88e5; } /* Blue */
+        .team-B { fill: #d32f2f; } /* Red */
+        .ball { fill: #ffffff; stroke: #000000; stroke-width: 2; } /* Enhanced ball appearance */
+        .cone { fill: #ff9800; stroke: #333; stroke-width: 1; }
+
+        .piece-label {
+            font-size: 14px;
+            font-weight: bold;
+            fill: white;
+            pointer-events: none;
+            text-anchor: middle;
+            dominant-baseline: central;
+        }
+        
+        /* Styles for arrows */
+        .tactics-arrow {
+            stroke: yellow;
+            stroke-width: 4;
+            fill: none;
+            cursor: pointer;
+            transition: stroke-width 0.1s;
+        }
+
+        .tactics-arrow:hover {
+            stroke-width: 6;
+        }
+
+        #pwa-hint {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #e0f7fa;
+            border: 1px solid #b2ebf2;
+            border-radius: 4px;
+            font-size: 14px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <script>
+        const serviceWorkerContent = `
+            const CACHE_NAME = 'tactics-board-v2';
+            const urlsToCache = ['/', 'index.html'];
+
+            self.addEventListener('install', event => {
+                event.waitUntil(
+                    caches.open(CACHE_NAME)
+                        .then(cache => cache.addAll(urlsToCache).catch(err => {
+                            console.error('Failed to cache resources:', err);
+                        }))
+                );
+            });
+
+            self.addEventListener('fetch', event => {
+                event.respondWith(
+                    caches.match(event.request)
+                        .then(response => response || fetch(event.request))
+                );
+            });
+            
+            self.addEventListener('activate', event => {
+                const cacheWhitelist = [CACHE_NAME];
+                event.waitUntil(
+                    caches.keys().then(cacheNames => {
+                        return Promise.all(
+                            cacheNames.map(cacheName => {
+                                if (cacheWhitelist.indexOf(cacheName) === -1) {
+                                    return caches.delete(cacheName);
+                                }
+                            })
+                        );
+                    })
+                );
+            });
+        `;
+
+        if ('serviceWorker' in navigator) {
+            const blob = new Blob([serviceWorkerContent], { type: 'application/javascript' });
+            const swUrl = URL.createObjectURL(blob);
+            
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register(swUrl)
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful');
+                    })
+                    .catch(error => {
+                        console.error('ServiceWorker registration failed:', error);
+                    });
+            });
+        }
+    </script>
+    
+    <script id="manifest-script" type="application/json">
+        {"name": "Soccer Tactics Board", "short_name": "Tactics Board", "description": "Digital soccer coach's tactics whiteboard.", "start_url": ".", "display": "standalone", "background_color": "#38761d", "theme_color": "#333333"}
+    </script>
+    <script>
+        const manifestData = JSON.parse(document.getElementById('manifest-script').textContent);
+        const manifestBlob = new Blob([JSON.stringify(manifestData)], {type: 'application/json'});
+        const manifestURL = URL.createObjectURL(manifestBlob);
+        const link = document.createElement('link');
+        link.rel = 'manifest';
+        link.href = manifestURL;
+        document.head.appendChild(link);
+    </script>
+    
+    <div id="pwa-hint">
+        💡 **PWA Ready:** Use "Add to Home Screen" in Safari to install this app for full offline use.
+    </div>
+
+    <div id="toolbar">
+        <button id="add-a-btn">➕ Player A</button>
+        <button id="add-b-btn">➕ Player B</button>
+        <button id="add-ball-btn">⚽ Ball</button>
+        <button id="add-cone-btn">🔺 Cone</button>
+
+        <button id="line-mode-toggle">✏️ Line Mode</button>
+        <button id="undo-btn" disabled>↩️ Undo</button>
+        <button id="clear-board-btn">❌ Clear All</button>
+
+        <label><input type="checkbox" id="snap-to-grid-toggle"> Snap</label>
+        <label><input type="checkbox" id="lock-pieces-toggle"> Lock</label>
+
+        <select id="formation-select">
+            <option value="">-- Select Formation --</option>
+            <option value="4-3-3">4-3-3</option>
+            <option value="4-2-3-1">4-2-3-1</option>
+            <option value="4-4-2">4-4-2</option>
+            <option value="3-5-2">3-5-2</option>
+            <option value="4-1-4-1">4-1-4-1</option>
+            <option value="3-4-3">3-4-3</option>
+            <option value="5-3-2">5-3-2</option>
+        </select>
+        
+        <label><input type="checkbox" id="clear-first-checkbox" checked> Clear first</label>
+        <button id="fill-a-btn">Fill Team A</button>
+        <button id="fill-b-btn">Fill Team B</button>
+
+        <button id="save-btn">💾 Save</button>
+        <button id="load-btn">📂 Load</button>
+        </div>
+
+    <div id="board-container">
+        <svg id="soccer-field" width="1000" height="650" viewBox="0 0 1000 650" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+            <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="yellow" />
+                </marker>
+            </defs>
+
+            <rect x="0" y="0" width="1000" height="650" fill="none" stroke="white" stroke-width="4" />
+            <line x1="500" y1="0" x2="500" y2="650" stroke="white" stroke-width="4" />
+            <circle cx="500" cy="325" r="91.5" stroke="white" stroke-width="4" fill="none" />
+            <circle cx="500" cy="325" r="2" fill="white" />
+            
+            <rect x="0" y="148" width="165" height="354" stroke="white" stroke-width="4" fill="none" />
+            <rect x="0" y="247" width="55" height="156" stroke="white" stroke-width="4" fill="none" />
+            <circle cx="110" cy="325" r="2" fill="white" />
+            <path d="M165,183.7 a91.5,91.5 0 0 1 0,282.6" stroke="white" stroke-width="4" fill="none" />
+
+            <rect x="835" y="148" width="165" height="354" stroke="white" stroke-width="4" fill="none" />
+            <rect x="945" y="247" width="55" height="156" stroke="white" stroke-width="4" fill="none" />
+            <circle cx="890" cy="325" r="2" fill="white" />
+            <path d="M835,183.7 a91.5,91.5 0 0 0 0,282.6" stroke="white" stroke-width="4" fill="none" />
+            
+            <path d="M0,10 a10,10 0 0 0 10,-10" stroke="white" stroke-width="4" fill="none" />
+            <path d="M1000,10 a10,10 0 0 1 -10,-10" stroke="white" stroke-width="4" fill="none" />
+            <path d="M0,640 a10,10 0 0 1 10,10" stroke="white" stroke-width="4" fill="none" />
+            <path d="M1000,640 a10,10 0 0 0 -10,10" stroke="white" stroke-width="4" fill="none" />
+
+            <g id="dynamic-elements"></g>
+
+        </svg>
+    </div>
+
+    <script>
+        // --- JAVASCRIPT LOGIC ---
+
+        // ===================================
+        // 1. CORE DOM & STATE MANAGEMENT
+        // ===================================
+        const svg = document.getElementById('soccer-field');
+        const dynamicElements = document.getElementById('dynamic-elements');
+
+        const TACTICS_KEY = 'soccerTacticsBoardState';
+        const HISTORY_LIMIT = 50;
+
+        // State variables
+        let selectedElement = null;
+        let isDrawing = false;
+        let currentLine = null;
+        let history = [];
+        let historyIndex = -1;
+        
+        // Piece counters for automatic labeling (A1, B1, A2, B2, etc.)
+        const pieceCounters = { A: 1, B: 1 }; 
+
+        // Configuration Toggles
+        let lineMode = false;
+        let snapToGrid = document.getElementById('snap-to-grid-toggle').checked;
+        let lockPieces = document.getElementById('lock-pieces-toggle').checked;
+        const GRID_SIZE = 25; // Snap grid size in pixels
+
+        // Constants
+        const PLAYER_R = 15;
+        const BALL_R = 8;
+        const CONE_R = 10;
+        const FIELD_WIDTH = 1000;
+        const FIELD_HEIGHT = 650;
+        let pieceIdCounter = 1; // Counter for unique piece IDs
+
+        // Helper to get SVG coordinates from pointer event
+        function getSvgCoords(evt) {
+            const CTM = svg.getScreenCTM();
+            return {
+                x: (evt.clientX - CTM.e) / CTM.a,
+                y: (evt.clientY - CTM.f) / CTM.d
+            };
+        }
+
+        // Snap to Grid function
+        function snap(coord) {
+            return snapToGrid ? Math.round(coord / GRID_SIZE) * GRID_SIZE : coord;
+        }
+
+        // ===================================
+        // 2. HISTORY (UNDO) - REDO REMOVED
+        // ===================================
+
+        // Function to capture the current state of dynamic elements
+        function captureState() {
+            // Reset counters based on current pieces
+            pieceCounters.A = 1;
+            pieceCounters.B = 1;
+
+            const state = [];
+            dynamicElements.childNodes.forEach(node => {
+                if (node.tagName === 'g' && node.classList.contains('player-group')) {
+                    // Player/Ball/Cone
+                    const team = node.dataset.team;
+                    const label = node.querySelector('.piece-label')?.textContent || '';
+                    
+                    // Update the counter state based on the current pieces
+                    if (team === 'A' && label.startsWith('A')) pieceCounters.A = Math.max(pieceCounters.A, parseInt(label.substring(1)) + 1 || 1);
+                    if (team === 'B' && label.startsWith('B')) pieceCounters.B = Math.max(pieceCounters.B, parseInt(label.substring(1)) + 1 || 1);
+
+                    state.push({
+                        type: node.dataset.type,
+                        team: team,
+                        label: label,
+                        x: parseFloat(node.getAttribute('data-x')),
+                        y: parseFloat(node.getAttribute('data-y')),
+                        fill: node.querySelector('circle')?.getAttribute('fill') || undefined // Save custom fill color
+                    });
+                } else if (node.tagName === 'line' && node.classList.contains('tactics-arrow')) {
+                    // Arrow
+                    state.push({
+                        type: 'arrow',
+                        x1: parseFloat(node.getAttribute('x1')),
+                        y1: parseFloat(node.getAttribute('y1')),
+                        x2: parseFloat(node.getAttribute('x2')),
+                        y2: parseFloat(node.getAttribute('y2'))
+                    });
+                }
+            });
+            return state;
+        }
+
+        // Function to render the state back onto the board
+        function renderState(state) {
+            dynamicElements.innerHTML = '';
+            // Reset counters before rendering
+            pieceCounters.A = 1;
+            pieceCounters.B = 1;
+
+            state.forEach(data => {
+                if (data.type === 'player' || data.type === 'ball' || data.type === 'cone') {
+                    // Note: Re-create piece without using the automatic labeling logic 
+                    createPiece(data.type, data.team, data.label, data.x, data.y, data.fill);
+
+                    // Ensure counters are updated correctly after rendering a saved piece
+                    if (data.type === 'player') {
+                        const num = parseInt(data.label.substring(1));
+                        if (data.team === 'A' && num) pieceCounters.A = Math.max(pieceCounters.A, num + 1);
+                        if (data.team === 'B' && num) pieceCounters.B = Math.max(pieceCounters.B, num + 1);
+                    }
+                } else if (data.type === 'arrow') {
+                    const line = createArrowElement(data.x1, data.y1, data.x2, data.y2);
+                    dynamicElements.appendChild(line);
+                }
+            });
+        }
+
+        // Push a new state to history
+        function pushState() {
+            const currentState = captureState();
+
+            if (historyIndex >= 0 && JSON.stringify(currentState) === JSON.stringify(history[historyIndex])) {
+                return;
+            }
+
+            history = history.slice(0, historyIndex + 1);
+            if (history.length >= HISTORY_LIMIT) {
+                history.shift();
+            } else {
+                historyIndex++;
+            }
+
+            history[historyIndex] = currentState;
+            updateHistoryButtons();
+        }
+
+        // Undo function
+        function undo() {
+            if (historyIndex > 0) {
+                historyIndex--;
+                renderState(history[historyIndex]);
+                updateHistoryButtons();
+            }
+        }
+
+        function updateHistoryButtons() {
+            // Redo button is removed
+            document.getElementById('undo-btn').disabled = historyIndex <= 0;
+        }
+
+        let stateTimeout;
+        function debouncePushState() {
+            clearTimeout(stateTimeout);
+            stateTimeout = setTimeout(pushState, 150);
+        }
+
+        // ===================================
+        // 3. PIECE CREATION (Player, Ball, Cone)
+        // ===================================
+
+        function getAutoLabel(type, team) {
+            if (type !== 'player') return '';
+            const label = team + pieceCounters[team];
+            pieceCounters[team]++;
+            return label;
+        }
+
+        function createPiece(type, team, label, x, y, customFill) {
+            x = x !== undefined ? x : 500;
+            y = y !== undefined ? y : 325;
+            
+            // If label is not provided (e.g., when adding a new player), generate one
+            label = label !== undefined ? label : getAutoLabel(type, team); 
+
+            const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            group.classList.add('player-group');
+            group.setAttribute('transform', `translate(${x}, ${y})`);
+            group.setAttribute('data-x', x);
+            group.setAttribute('data-y', y);
+            group.dataset.type = type;
+            group.dataset.team = team;
+            group.id = `piece-${pieceIdCounter++}`;
+
+            let shape;
+            let radius;
+            
+            if (type === 'ball') {
+                shape = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                shape.classList.add('ball');
+                radius = BALL_R; // Corrected radius
+            } else if (type === 'cone') {
+                shape = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                shape.setAttribute('points', `0,${-CONE_R} ${-CONE_R},${CONE_R} ${CONE_R},${CONE_R}`);
+                shape.classList.add('cone');
+                radius = CONE_R;
+            } else { // Player
+                shape = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                shape.classList.add('player-piece', `team-${team}`);
+                radius = PLAYER_R;
+            }
+
+            if (type !== 'cone') {
+                 shape.setAttribute('r', radius);
+            }
+            shape.setAttribute('cx', 0);
+            shape.setAttribute('cy', 0);
+
+            // Apply custom fill color if loading from state
+            if (customFill) {
+                shape.setAttribute('fill', customFill);
+                shape.classList.remove('team-A', 'team-B'); 
+            }
+           
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.classList.add('piece-label');
+            text.textContent = label;
+            text.setAttribute('x', 0);
+            text.setAttribute('y', 0);
+
+            group.appendChild(shape);
+            if (type === 'player') {
+                group.appendChild(text);
+            }
+            
+            dynamicElements.appendChild(group);
+            
+            group.addEventListener('pointerdown', handlePointerDown);
+            group.addEventListener('dblclick', handleDoubleClick);
+            group.addEventListener('contextmenu', handleRightClick);
+
+            return group;
+        }
+
+        // ===================================
+        // 4. DRAG & DROP LOGIC (Pointer Events)
+        // ===================================
+
+        let dragStartPoint;
+        let pieceStartPos;
+
+        function handlePointerDown(evt) {
+            if (lineMode || lockPieces) return; 
+
+            const piece = evt.target.closest('.player-group');
+            if (!piece) return;
+
+            if (evt.button !== 2) { 
+                evt.preventDefault();
+            }
+
+            selectedElement = piece;
+            selectedElement.setPointerCapture(evt.pointerId);
+            
+            dragStartPoint = { x: evt.clientX, y: evt.clientY };
+            pieceStartPos = {
+                x: parseFloat(selectedElement.getAttribute('data-x')),
+                y: parseFloat(selectedElement.getAttribute('data-y'))
+            };
+
+            const circle = selectedElement.querySelector('circle');
+            if(circle && circle.classList.contains('player-piece')) circle.setAttribute('r', PLAYER_R + 3);
+
+            svg.addEventListener('pointermove', handlePointerMove);
+            svg.addEventListener('pointerup', handlePointerUp);
+        }
+
+        function handlePointerMove(evt) {
+            if (!selectedElement) return;
+            
+            evt.preventDefault();
+
+            const dx = evt.clientX - dragStartPoint.x;
+            const dy = evt.clientY - dragStartPoint.y;
+
+            let newX = pieceStartPos.x + dx;
+            let newY = pieceStartPos.y + dy;
+
+            newX = snap(newX);
+            newY = snap(newY);
+
+            selectedElement.setAttribute('transform', `translate(${newX}, ${newY})`);
+            selectedElement.setAttribute('data-x', newX);
+            selectedElement.setAttribute('data-y', newY);
+        }
+
+        function handlePointerUp(evt) {
+            if (!selectedElement) return;
+
+            const circle = selectedElement.querySelector('circle');
+            if(circle && circle.classList.contains('player-piece')) circle.setAttribute('r', PLAYER_R);
+
+            selectedElement.releasePointerCapture(evt.pointerId);
+            selectedElement = null;
+
+            svg.removeEventListener('pointermove', handlePointerMove);
+            svg.removeEventListener('pointerup', handlePointerUp);
+            
+            pushState();
+        }
+
+        // ===================================
+        // 5. DRAWING TOOL (Arrows) - BUG FIX
+        // ===================================
+
+        const LINE_COLOR = 'yellow';
+
+        function createArrowElement(x1, y1, x2, y2) {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.classList.add('tactics-arrow');
+            line.setAttribute('x1', x1);
+            line.setAttribute('y1', y1);
+            line.setAttribute('x2', x2);
+            line.setAttribute('y2', y2);
+            line.setAttribute('stroke', LINE_COLOR);
+            line.setAttribute('marker-end', 'url(#arrowhead)');
+            
+            line.addEventListener('contextmenu', handleRightClickLine);
+
+            return line;
+        }
+
+        function handleLineModeStart(evt) {
+            // CRITICAL FIX: Only start drawing if the pointer is down on the SVG itself, not on a piece/line
+            if (!lineMode || evt.target !== svg) return;
+
+            evt.preventDefault();
+            
+            isDrawing = true;
+
+            const { x, y } = getSvgCoords(evt);
+            const startX = snap(x);
+            const startY = snap(y);
+
+            currentLine = createArrowElement(startX, startY, startX, startY);
+            dynamicElements.appendChild(currentLine);
+
+            // Add move and up listeners to the SVG to capture movement anywhere
+            svg.addEventListener('pointermove', handleLineModeMove);
+            svg.addEventListener('pointerup', handleLineModeEnd); // Listener added here
+        }
+
+        function handleLineModeMove(evt) {
+            if (!isDrawing) return;
+
+            const { x, y } = getSvgCoords(evt);
+            const endX = snap(x);
+            const endY = snap(y);
+
+            currentLine.setAttribute('x2', endX);
+            currentLine.setAttribute('y2', endY);
+        }
+
+        function handleLineModeEnd(evt) {
+            if (!isDrawing) return;
+
+            const { x, y } = getSvgCoords(evt);
+            const finalX = snap(x);
+            const finalY = snap(y);
+            
+            // Check if the line is just a point (short distance tolerance)
+            const x1 = parseFloat(currentLine.getAttribute('x1'));
+            const y1 = parseFloat(currentLine.getAttribute('y1'));
+
+            if (Math.abs(x1 - finalX) < 5 && Math.abs(y1 - finalY) < 5) {
+                dynamicElements.removeChild(currentLine);
+            } else {
+                currentLine.setAttribute('x2', finalX);
+                currentLine.setAttribute('y2', finalY);
+                pushState();
+            }
+
+            // CRITICAL FIX: Remove the listeners after the line is finalized
+            svg.removeEventListener('pointermove', handleLineModeMove);
+            svg.removeEventListener('pointerup', handleLineModeEnd); 
+            
+            isDrawing = false;
+            currentLine = null;
+        }
+
+        // ===================================
+        // 6. FORMATION PRESETS
+        // ===================================
+
+        // Formation data remains the same...
+
+        const FORMATIONS = {
+            '4-3-3': [
+                [0.05, 0.50, '1'], [0.20, 0.15, '2'], [0.20, 0.85, '3'], [0.25, 0.35, '4'], [0.25, 0.65, '5'], [0.45, 0.50, '6'], 
+                [0.60, 0.30, '8'], [0.60, 0.70, '10'], [0.85, 0.15, '7'], [0.85, 0.50, '9'], [0.85, 0.85, '11']
+            ],
+            '4-2-3-1': [
+                [0.05, 0.50, '1'], [0.20, 0.15, '2'], [0.20, 0.85, '3'], [0.25, 0.35, '4'], [0.25, 0.65, '5'], [0.40, 0.40, '6'], 
+                [0.40, 0.60, '8'], [0.60, 0.20, '7'], [0.60, 0.50, '10'], [0.60, 0.80, '11'], [0.85, 0.50, '9']
+            ],
+            '4-4-2': [
+                [0.05, 0.50, '1'], [0.20, 0.10, '2'], [0.20, 0.90, '3'], [0.30, 0.40, '4'], [0.30, 0.60, '5'], [0.50, 0.20, '7'], 
+                [0.50, 0.40, '6'], [0.50, 0.60, '8'], [0.50, 0.80, '11'], [0.80, 0.40, '9'], [0.80, 0.60, '10']
+            ],
+            '3-5-2': [
+                [0.05, 0.50, '1'], [0.20, 0.30, '4'], [0.20, 0.50, '5'], [0.20, 0.70, '2'], [0.45, 0.10, '7'], [0.40, 0.35, '6'], 
+                [0.40, 0.65, '8'], [0.45, 0.90, '3'], [0.60, 0.50, '10'], [0.80, 0.40, '9'], [0.80, 0.60, '11']
+            ],
+            '4-1-4-1': [
+                [0.05, 0.50, '1'], [0.20, 0.15, '2'], [0.20, 0.85, '3'], [0.25, 0.35, '4'], [0.25, 0.65, '5'], [0.40, 0.50, '6'], 
+                [0.60, 0.15, '7'], [0.60, 0.35, '8'], [0.60, 0.65, '10'], [0.60, 0.85, '11'], [0.85, 0.50, '9']
+            ],
+            '3-4-3': [
+                [0.05, 0.50, '1'], [0.20, 0.30, '4'], [0.20, 0.50, '5'], [0.20, 0.70, '2'], [0.45, 0.20, '7'], [0.40, 0.40, '6'], 
+                [0.40, 0.60, '8'], [0.45, 0.80, '3'], [0.85, 0.30, '9'], [0.85, 0.50, '10'], [0.85, 0.70, '11']
+            ],
+            '5-3-2': [
+                [0.05, 0.50, '1'], [0.20, 0.10, '2'], [0.20, 0.30, '4'], [0.20, 0.50, '5'], [0.20, 0.70, '3'], [0.20, 0.90, '12'], 
+                [0.50, 0.30, '6'], [0.50, 0.50, '8'], [0.50, 0.70, '10'], [0.80, 0.40, '9'], [0.80, 0.60, '7']
+            ]
+        };
+        
+        function fillTeam(team, formationKey, clearFirst) {
+            const formationData = FORMATIONS[formationKey];
+            if (!formationData) return;
+
+            if (clearFirst) {
+                const piecesToRemove = [];
+                dynamicElements.childNodes.forEach(node => {
+                    if (node.tagName === 'g' && node.dataset.team === team) {
+                        piecesToRemove.push(node);
+                    }
+                });
+                piecesToRemove.forEach(node => dynamicElements.removeChild(node));
+                
+                // Reset counter for the cleared team
+                pieceCounters[team] = 1;
+            }
+
+            // Create a temporary array of the classic shirt numbers for placement
+            const shirtNumbers = ['1', '2', '3', '4', '5', '6', '8', '10', '7', '9', '11'];
+            let nextPlayerIndex = 1;
+
+            formationData.forEach(([normX, normY, label]) => {
+                let x, y;
+                y = normY * FIELD_HEIGHT;
+
+                // Mirror for Team B
+                x = (team === 'A') ? (normX * FIELD_WIDTH) : ((1 - normX) * FIELD_WIDTH);
+
+                const offsetX = Math.random() * 5 - 2.5;
+                const offsetY = Math.random() * 5 - 2.5;
+
+                // Use auto-labeling logic to create the piece
+                const autoLabel = team + nextPlayerIndex;
+                createPiece('player', team, autoLabel, x + offsetX, y + offsetY);
+                nextPlayerIndex++; // Increment for next player in the formation
+            });
+            
+            // Re-sync the global counter after placing a formation
+            pieceCounters[team] = nextPlayerIndex; 
+
+            pushState();
+        }
+
+        // ===================================
+        // 7. PIECE EDIT/DELETE LOGIC
+        // ===================================
+
+        // Double-click/Double-tap to edit label/color
+        function handleDoubleClick(evt) {
+            const piece = evt.currentTarget;
+            const textEl = piece.querySelector('.piece-label');
+            
+            if (piece.dataset.type !== 'player') return;
+
+            const currentLabel = textEl.textContent;
+            
+            const newLabel = prompt(`Edit label for ${piece.dataset.team} piece:`, currentLabel);
+
+            if (newLabel !== null) {
+                textEl.textContent = newLabel.trim().toUpperCase().substring(0, 3);
+                
+                const newColor = prompt(`Enter new HEX color (e.g., #00ff00) or 'blue'/'red' for default:`, '');
+                const circleEl = piece.querySelector('circle');
+                
+                if (newColor && circleEl) {
+                    // Normalize inputs
+                    const color = newColor.toLowerCase();
+                    
+                    if (color === 'blue') {
+                        circleEl.setAttribute('fill', '#1e88e5');
+                        circleEl.classList.remove('team-B');
+                        circleEl.classList.add('team-A');
+                        piece.dataset.team = 'A';
+                    } else if (color === 'red') {
+                        circleEl.setAttribute('fill', '#d32f2f');
+                        circleEl.classList.remove('team-A');
+                        circleEl.classList.add('team-B');
+                        piece.dataset.team = 'B';
+                    } else if (color.match(/^#([0-9A-F]{3}){1,2}$/i)) {
+                        circleEl.setAttribute('fill', newColor);
+                        circleEl.classList.remove('team-A', 'team-B');
+                    }
+                }
+                pushState();
+            }
+        }
+
+        // Right-click/Long-press to delete a piece
+        function handleRightClick(evt) {
+            evt.preventDefault();
+            
+            const piece = evt.currentTarget;
+            if (confirm(`Delete piece ${piece.querySelector('.piece-label')?.textContent || piece.dataset.type}?`)) {
+                dynamicElements.removeChild(piece);
+                pushState();
+            }
+        }
+
+        // Right-click/Long-press to delete a line
+        function handleRightClickLine(evt) {
+            evt.preventDefault();
+            
+            const line = evt.currentTarget;
+            if (confirm(`Delete this arrow?`)) {
+                dynamicElements.removeChild(line);
+                pushState();
+            }
+        }
+
+        // ===================================
+        // 8. SAVING & LOADING
+        // ===================================
+
+        function saveBoard() {
+            try {
+                const state = captureState();
+                localStorage.setItem(TACTICS_KEY, JSON.stringify(state));
+                alert('Board state saved successfully!');
+            } catch (e) {
+                console.error('Save failed:', e);
+                alert('Could not save board state. Local storage may be full.');
+            }
+        }
+
+        function loadBoard() {
+            try {
+                const stateJson = localStorage.getItem(TACTICS_KEY);
+                if (stateJson) {
+                    const state = JSON.parse(stateJson);
+                    renderState(state);
+                    history = [captureState()];
+                    historyIndex = 0;
+                    updateHistoryButtons();
+                    alert('Board state loaded successfully!');
+                } else {
+                    alert('No saved state found.');
+                }
+            } catch (e) {
+                console.error('Load failed:', e);
+                alert('Could not load board state. Data might be corrupted.');
+            }
+        }
+
+        // ===================================
+        // 9. INITIALIZATION & EVENT LISTENERS
+        // ===================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // 1. Tool Toggle Listeners
+            document.getElementById('line-mode-toggle').addEventListener('click', () => {
+                lineMode = !lineMode;
+                const btn = document.getElementById('line-mode-toggle');
+                btn.classList.toggle('active', lineMode);
+                
+                if (lineMode) {
+                    // When activating, ensure pointer down listener is on the SVG
+                    svg.addEventListener('pointerdown', handleLineModeStart);
+                    btn.textContent = '✏️ Line Mode (ACTIVE)';
+                } else {
+                    // When deactivating, remove listener to prevent accidental draws
+                    svg.removeEventListener('pointerdown', handleLineModeStart);
+                    btn.textContent = '✏️ Line Mode';
+                }
+            });
+
+            document.getElementById('snap-to-grid-toggle').addEventListener('change', (evt) => {
+                snapToGrid = evt.target.checked;
+            });
+
+            document.getElementById('lock-pieces-toggle').addEventListener('change', (evt) => {
+                lockPieces = evt.target.checked;
+            });
+            
+            // 2. Add Piece Listeners
+            document.getElementById('add-a-btn').addEventListener('click', () => {
+                // Initial placement slightly offset from center
+                createPiece('player', 'A', undefined, 250 + Math.random() * 50, 325 + Math.random() * 50 - 25);
+                pushState();
+            });
+            document.getElementById('add-b-btn').addEventListener('click', () => {
+                createPiece('player', 'B', undefined, 750 + Math.random() * 50, 325 + Math.random() * 50 - 25);
+                pushState();
+            });
+            document.getElementById('add-ball-btn').addEventListener('click', () => {
+                createPiece('ball', null, null, 500, 325);
+                pushState();
+            });
+            document.getElementById('add-cone-btn').addEventListener('click', () => {
+                createPiece('cone', null, null, 500 + Math.random() * 100 - 50, 325 + Math.random() * 100 - 50);
+                pushState();
+            });
+
+            // 3. History Listeners
+            document.getElementById('undo-btn').addEventListener('click', undo);
+            
+            document.getElementById('clear-board-btn').addEventListener('click', () => {
+                if(confirm('Are you sure you want to clear the entire board?')) {
+                    dynamicElements.innerHTML = '';
+                    pieceCounters.A = 1;
+                    pieceCounters.B = 1;
+                    pushState();
+                }
+            });
+
+            // 4. Formation Listeners
+            document.getElementById('fill-a-btn').addEventListener('click', () => {
+                const key = document.getElementById('formation-select').value;
+                const clear = document.getElementById('clear-first-checkbox').checked;
+                if (key) fillTeam('A', key, clear);
+                else alert('Please select a formation first.');
+            });
+            document.getElementById('fill-b-btn').addEventListener('click', () => {
+                const key = document.getElementById('formation-select').value;
+                const clear = document.getElementById('clear-first-checkbox').checked;
+                if (key) fillTeam('B', key, clear);
+                else alert('Please select a formation first.');
+            });
+
+            // 5. Persistence Listeners
+            document.getElementById('save-btn').addEventListener('click', saveBoard);
+            document.getElementById('load-btn').addEventListener('click', loadBoard);
+            
+            // 6. Initial State & History Setup
+            const storedState = localStorage.getItem(TACTICS_KEY);
+            if (storedState) {
+                loadBoard();
+            } else {
+                pushState(); 
+            }
+        });
+
+    </script>
+</body>
+</html>
